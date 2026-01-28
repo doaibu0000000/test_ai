@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prompt AI - Video Analyzer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Fira+Code&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .font-mono { font-family: 'Fira Code', monospace; }
+        .loader-spin {
+            border: 3px solid rgba(99, 102, 241, 0.1);
+            border-top: 3px solid #6366f1;
+            border-radius: 50%;
+            width: 48px;
+            height: 48px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .video-controls-overlay {
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            background: linear-gradient(transparent, rgba(0,0,0,0.8));
+        }
+        .video-container:hover .video-controls-overlay { opacity: 1; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen p-4 md:p-8">
+
+<div class="max-w-6xl mx-auto">
+    <header class="mb-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+            <h1 class="text-4xl font-black tracking-tight">Prompt<span class="text-indigo-600">AI</span></h1>
+            <p class="text-slate-500 mt-1">Ubah video menjadi metadata & analisis mendalam secara instan.</p>
+        </div>
+        <div class="px-4 py-2 bg-white border rounded-2xl shadow-sm text-sm font-semibold">
+            Node.js Backend <span class="text-green-500 ml-1">● Online</span>
+        </div>
+    </header>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <!-- Upload Section -->
+        <div class="space-y-6">
+            <div id="drop-zone" class="border-2 border-dashed border-slate-300 bg-white rounded-3xl p-8 min-h-[400px] flex flex-col items-center justify-center text-center cursor-pointer hover:border-indigo-400 transition-all">
+                <input type="file" id="file-input" class="hidden" accept="video/*">
+
+                <div id="state-empty" class="space-y-4">
+                    <div class="w-16 h-16 bg-indigo-50 rounded-full flex items-center justify-center mx-auto text-indigo-600">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    </div>
+                    <p class="font-bold">Klik atau seret video ke sini</p>
+                    <p class="text-xs text-slate-400">MP4, MOV, atau AVI (Maks 20MB)</p>
+                </div>
+
+                <div id="state-preview" class="hidden w-full space-y-4">
+                    <div class="aspect-video bg-black rounded-2xl overflow-hidden relative video-container">
+                        <video id="video-player" class="w-full h-full object-contain"></video>
+                        <div class="video-controls-overlay absolute inset-0 flex flex-col justify-end p-4 text-white">
+                            <div class="flex items-center gap-4">
+                                <button id="play-btn" class="hover:text-indigo-400">▶</button>
+                                <div class="h-1 bg-white/20 flex-grow rounded-full overflow-hidden">
+                                    <div id="progress-bar" class="h-full bg-indigo-500 w-0"></div>
+                                </div>
+                                <span id="time-display" class="text-[10px] font-mono">00:00</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex justify-between items-center text-sm font-bold bg-slate-100 p-3 rounded-xl">
+                        <span id="file-name-label" class="truncate max-w-[200px]">video.mp4</span>
+                        <button id="reset-btn" class="text-red-500 hover:underline">Hapus</button>
+                    </div>
+                </div>
+            </div>
+
+            <button id="analyze-btn" disabled class="w-full py-4 rounded-2xl font-bold bg-slate-200 text-slate-400 transition-all shadow-lg shadow-indigo-200/50">
+                Jalankan Analisis AI
+            </button>
+        </div>
+
+        <!-- Result Section -->
+        <div class="bg-slate-900 rounded-[2rem] p-6 text-indigo-300 font-mono text-sm relative min-h-[500px] flex flex-col shadow-2xl">
+            <div class="flex justify-between items-center mb-4 border-b border-slate-800 pb-4">
+                <span class="text-slate-500 font-bold uppercase text-[10px] tracking-widest">Output JSON</span>
+                <button id="copy-btn" class="text-xs bg-slate-800 px-3 py-1 rounded-lg hover:bg-slate-700 hidden">Copy</button>
+            </div>
+
+            <div id="loading-overlay" class="hidden absolute inset-0 bg-slate-900/90 z-20 flex flex-col items-center justify-center text-center p-8">
+                <div class="loader-spin mb-4"></div>
+                <p class="font-bold text-white">AI Sedang Bekerja...</p>
+                <p class="text-xs text-slate-500 mt-2 leading-relaxed">Menganalisis visual, audio, dan struktur adegan. Harap tunggu sebentar.</p>
+            </div>
+
+            <div id="result-placeholder" class="flex-grow flex flex-col items-center justify-center text-slate-700 text-center">
+                <p>Hasil analisis akan muncul di sini setelah proses selesai.</p>
+            </div>
+
+            <pre id="json-output" class="hidden flex-grow overflow-auto custom-scrollbar whitespace-pre-wrap"></pre>
+        </div>
+    </div>
+</div>
+
+<script>
+    const API_URL = 'http://localhost:8000'; // Sesuaikan dengan port Node.js Anda
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('file-input');
+    const analyzeBtn = document.getElementById('analyze-btn');
+    const videoPlayer = document.getElementById('video-player');
+    const jsonOutput = document.getElementById('json-output');
+
+    // File Handling
+    dropZone.onclick = (e) => { if(e.target === dropZone || document.getElementById('state-empty').contains(e.target)) fileInput.click(); };
+    fileInput.onchange = (e) => handleFile(e.target.files[0]);
+
+    function handleFile(file) {
+        if (!file) return;
+        document.getElementById('file-name-label').innerText = file.name;
+        videoPlayer.src = URL.createObjectURL(file);
+        document.getElementById('state-empty').classList.add('hidden');
+        document.getElementById('state-preview').classList.remove('hidden');
+        analyzeBtn.disabled = false;
+        analyzeBtn.className = "w-full py-4 rounded-2xl font-bold bg-indigo-600 text-white hover:bg-indigo-700 transition-all shadow-lg";
+    }
+
+    document.getElementById('reset-btn').onclick = () => location.reload();
+
+    // Video Controls
+    document.getElementById('play-btn').onclick = () => videoPlayer.paused ? videoPlayer.play() : videoPlayer.pause();
+    videoPlayer.ontimeupdate = () => {
+        const p = (videoPlayer.currentTime / videoPlayer.duration) * 100;
+        document.getElementById('progress-bar').style.width = p + '%';
+        document.getElementById('time-display').innerText = formatTime(videoPlayer.currentTime);
+    };
+    function formatTime(s) { return new Date(s * 1000).toISOString().substr(14, 5); }
+
+    // Analysis Logic
+    analyzeBtn.onclick = async () => {
+        const file = fileInput.files[0];
+        const formData = new FormData();
+        formData.append('file', file);
+
+        document.getElementById('loading-overlay').classList.remove('hidden');
+        analyzeBtn.disabled = true;
+
+        try {
+            const res = await fetch(`${API_URL}/analyze`, { method: 'POST', body: formData });
+            const data = await res.json();
+
+            if(!res.ok) throw new Error(data.detail || 'Error server');
+
+            document.getElementById('result-placeholder').classList.add('hidden');
+            jsonOutput.classList.remove('hidden');
+            document.getElementById('copy-btn').classList.remove('hidden');
+            jsonOutput.innerText = JSON.stringify(data, null, 2);
+        } catch (err) {
+            alert("Gagal: " + err.message);
+        } finally {
+            document.getElementById('loading-overlay').classList.add('hidden');
+            analyzeBtn.disabled = false;
+        }
+    };
+
+    document.getElementById('copy-btn').onclick = () => {
+        navigator.clipboard.writeText(jsonOutput.innerText);
+        document.getElementById('copy-btn').innerText = "Copied!";
+        setTimeout(() => document.getElementById('copy-btn').innerText = "Copy", 2000);
+    };
+</script>
+</body>
+</html>
